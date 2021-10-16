@@ -1,3 +1,4 @@
+#include "rt.h"
 #include <rados/librados.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -160,13 +161,6 @@ int main(int argc, const char **argv) {
 
   // Parse Ceph config.
   {
-    ret = rados_conf_parse_argv(rados, argc, argv);
-    if (ret < 0) {
-      print_err("rados_conf_parse_argv()", ret);
-      ret = EXIT_FAILURE;
-      goto out;
-    }
-
     if (config_file) {
       ret = rados_conf_read_file(rados, config_file);
       if (ret < 0) {
@@ -187,21 +181,23 @@ int main(int argc, const char **argv) {
     }
   }
 
-  // Create IO context.
-  {
-    ret = rados_ioctx_create(rados, pool_name, &ioctx);
-    if (ret < 0) {
-      print_err("rados_ioctx_create()", ret);
-      ret = EXIT_FAILURE;
-      goto out;
-    }
+  printf("Connected to RADOS cluster.\n");
+
+  if (op == RT_OP_ADD) {
+    int created;
+    ret = rt_add(rados, pool_name, rt_name, (const char *const *)keys,
+                 keys_count, &created);
+    printf("created=%d\n", created);
+  }
+
+  if (op == RT_OP_REM) {
+    int deleted;
+    ret = rt_remove(rados, pool_name, rt_name, (const char *const *)keys,
+                    keys_count, &deleted);
+    printf("deleted=%d\n", deleted);
   }
 
 out:
-  if (ioctx) {
-    rados_ioctx_destroy(ioctx);
-  }
-
   rados_shutdown(rados);
 
   for (int i = 0; i < keys_count; i++) {

@@ -1,4 +1,4 @@
-SRCS := main.c
+SRCS := main.c rt.c
 
 all: build/reference-tracker
 
