@@ -250,8 +250,8 @@ int init_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
   // Prepare OMap entries.
 
   char **vals = malloc(sizeof(void *) * keys_count);
-  size_t *key_lens = malloc(sizeof(void *) * keys_count);
-  size_t *val_lens = malloc(sizeof(void *) * keys_count);
+  size_t *key_lens = malloc(sizeof(size_t) * keys_count);
+  size_t *val_lens = malloc(sizeof(size_t) * keys_count);
 
   for (int i = 0; i < keys_count; i++) {
     key_lens[i] = strlen(keys[i]);
@@ -306,7 +306,7 @@ int add_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
   char gen_cmp_buf[RT_V1_GEN_SIZE];
 
   // Return values from OMap comparisons.
-  int *ref_keys_found = malloc(sizeof(void *) * keys_count);
+  int *ref_keys_found = malloc(sizeof(int) * keys_count);
 
   // Read the RT object.
   if ((ret = read_v1(ioctx, oid, keys, keys_count, &gen, &refcount,
@@ -336,8 +336,8 @@ int add_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
 
   keys_to_add = malloc(sizeof(void *) * keys_to_add_count);
   vals_to_add = malloc(sizeof(void *) * keys_to_add_count);
-  keys_to_add_lens = malloc(sizeof(void *) * keys_to_add_count);
-  vals_to_add_lens = malloc(sizeof(void *) * keys_to_add_count);
+  keys_to_add_lens = malloc(sizeof(size_t) * keys_to_add_count);
+  vals_to_add_lens = malloc(sizeof(size_t) * keys_to_add_count);
 
   {
     printf("Adding %d keys out of %d requested:", keys_to_add_count,
@@ -441,7 +441,7 @@ int remove_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
   char gen_cmp_buf[RT_V1_GEN_SIZE];
 
   // Return values from OMap comparisons.
-  int *ref_keys_found = malloc(sizeof(void *) * keys_count);
+  int *ref_keys_found = malloc(sizeof(int) * keys_count);
 
   // Read the RT object.
   if ((ret = read_v1(ioctx, oid, keys, keys_count, &gen, &refcount,
@@ -471,7 +471,7 @@ int remove_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
   }
 
   keys_to_remove = malloc(sizeof(void *) * keys_to_remove_count);
-  keys_to_remove_lens = malloc(sizeof(void *) * keys_to_remove_count);
+  keys_to_remove_lens = malloc(sizeof(size_t) * keys_to_remove_count);
 
   {
     printf("Removing %d keys out of %d requested:", keys_to_remove_count,
@@ -587,7 +587,7 @@ int read_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
 
   // Prepare input for rados_read_op_omap_get_vals_by_keys2.
 
-  size_t *key_lens = malloc(sizeof(void *) * keys_count);
+  size_t *key_lens = malloc(sizeof(size_t) * keys_count);
   for (int i = 0; i < keys_count; i++) {
     key_lens[i] = strlen(keys[i]);
   }
