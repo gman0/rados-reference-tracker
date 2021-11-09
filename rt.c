@@ -71,7 +71,7 @@ int read_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
  */
 int rt_add(rados_t rados, const char *pool_name, const char *rt_name,
            const char *const *keys, int keys_count, int *rt_created) {
-  {
+  { // Debug log message.
     printf("rt_add(): Adding %d keys:", keys_count);
     for (int i = 0; i < keys_count; i++)
       printf(" %s", keys[i]);
@@ -94,7 +94,7 @@ int rt_add(rados_t rados, const char *pool_name, const char *rt_name,
     if (ret == -ENOENT) {
       // This is new RT. Initialize it with `keys`.
 
-      {
+      { // Debug log message.
         printf("Got ENOENT. This must be a new RT object. Initialize it with "
                "provided keys.\n");
       }
@@ -108,7 +108,9 @@ int rt_add(rados_t rados, const char *pool_name, const char *rt_name,
 
   // Add keys to tracked references.
 
-  { printf("Got RT object version %d.\n", version); }
+  { // Debug log message.
+    printf("Got RT object version %d.\n", version);
+  }
 
   switch (version) {
   case 1:
@@ -116,7 +118,9 @@ int rt_add(rados_t rados, const char *pool_name, const char *rt_name,
     break;
   default:
     // Unknown version.
-    { printf("This is not a known RT object version.\n"); }
+    { // Debug log message.
+      printf("This is not a known RT object version.\n");
+    }
     ret = -1;
     break;
   }
@@ -137,7 +141,7 @@ out:
  */
 int rt_remove(rados_t rados, const char *pool_name, const char *rt_name,
               const char *const *keys, int keys_count, int *rt_deleted) {
-  {
+  { // Debug log message.
     printf("rt_remove(): Removing %d keys:", keys_count);
     for (int i = 0; i < keys_count; i++)
       printf(" %s", keys[i]);
@@ -160,7 +164,7 @@ int rt_remove(rados_t rados, const char *pool_name, const char *rt_name,
     if (ret == -ENOENT) {
       // This RT doesn't exist. Assume it was already deleted.
 
-      {
+      { // Debug log message.
         printf("Got ENOENT. We're assuming the object must have been already "
                "deleted.\n");
       }
@@ -174,7 +178,9 @@ int rt_remove(rados_t rados, const char *pool_name, const char *rt_name,
 
   // Remove keys from tracked references.
 
-  { printf("Got RT object version %d.\n", version); }
+  { // Debug log message.
+    printf("Got RT object version %d.\n", version);
+  }
 
   switch (version) {
   case 1:
@@ -182,7 +188,9 @@ int rt_remove(rados_t rados, const char *pool_name, const char *rt_name,
     break;
   default:
     // Unknown version.
-    { printf("This is not a known RT object version.\n"); }
+    { // Debug log message.
+      printf("This is not a known RT object version.\n");
+    }
     ret = -1;
     break;
   }
@@ -199,7 +207,9 @@ out:
 }
 
 int read_version(rados_ioctx_t ioctx, const char *oid, RT_VERSION_T *version) {
-  { printf("Reading RT version...\n"); }
+  { // Debug log message.
+    printf("Reading RT version...\n");
+  }
 
   char version_bytes[RT_VERSION_SIZE];
 
@@ -217,7 +227,9 @@ int read_version(rados_ioctx_t ioctx, const char *oid, RT_VERSION_T *version) {
 
 int init_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
             int keys_count) {
-  { printf("init_v1(): Initializing new RT v1 object.\n"); }
+  { // Debug log message.
+    printf("init_v1(): Initializing new RT v1 object.\n");
+  }
 
   // Prepare version.
 
@@ -272,7 +284,7 @@ int init_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
 
   int ret = rados_write_op_operate(write_op, ioctx, oid, NULL, 0);
 
-  {
+  { // Debug log message.
     if (ret < 0) {
       printf("Write operation failed with error code %d.\n", ret);
     } else {
@@ -291,7 +303,9 @@ int init_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
 
 int add_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
            int keys_count) {
-  { printf("add_v1(): Adding keys to an existing RT v1 object.\n"); }
+  { // Debug log message.
+    printf("add_v1(): Adding keys to an existing RT v1 object.\n");
+  }
 
   int ret = 0;
   RT_V1_GEN_T gen;
@@ -330,7 +344,9 @@ int add_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
 
   if (!keys_to_add_count) {
     // Nothing to do.
-    { printf("No keys will be added. They are all already tracked.\n"); }
+    { // Debug log message.
+      printf("No keys will be added. They are all already tracked.\n");
+    }
     goto out;
   }
 
@@ -339,7 +355,7 @@ int add_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
   keys_to_add_lens = malloc(sizeof(size_t) * keys_to_add_count);
   vals_to_add_lens = malloc(sizeof(size_t) * keys_to_add_count);
 
-  {
+  { // Debug log message.
     printf("Adding %d keys out of %d requested:", keys_to_add_count,
            keys_count);
   }
@@ -356,10 +372,14 @@ int add_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
     vals_to_add_lens[j] = 0;
 
     j++;
-    { printf(" %s", keys[i]); }
+    { // Debug log message.
+      printf(" %s", keys[i]);
+    }
   }
 
-  { printf(".\n"); }
+  { // Debug log message.
+    printf(".\n");
+  }
 
   // Prepare buffer for gen comparison.
 
@@ -398,7 +418,7 @@ int add_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
     rados_release_write_op(write_op);
 
     if (ret < 0) {
-      {
+      { // Debug log message.
         if (gen_cmp_rval != 0) {
           printf("The RT object has changed since it was last read. Please try "
                  "again.\n");
@@ -410,7 +430,9 @@ int add_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
     }
   }
 
-  { printf("RT object successfully updated.\n"); }
+  { // Debug log message.
+    printf("RT object successfully updated.\n");
+  }
 
 out:
 
@@ -425,7 +447,9 @@ out:
 
 int remove_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
               int keys_count, int *rt_removed) {
-  { printf("remove_v1(): Removing keys from an existing RT v1 object.\n"); }
+  { // Debug log message.
+    printf("remove_v1(): Removing keys from an existing RT v1 object.\n");
+  }
 
   int removed = 0;
   int ret = 0;
@@ -463,7 +487,7 @@ int remove_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
 
   if (!keys_to_remove_count) {
     // Nothing to do.
-    {
+    { // Debug log message.
       printf("No keys will be removed because none of the keys requested for "
              "removal are present.\n");
     }
@@ -473,7 +497,7 @@ int remove_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
   keys_to_remove = malloc(sizeof(void *) * keys_to_remove_count);
   keys_to_remove_lens = malloc(sizeof(size_t) * keys_to_remove_count);
 
-  {
+  { // Debug log message.
     printf("Removing %d keys out of %d requested:", keys_to_remove_count,
            keys_count);
   }
@@ -488,10 +512,14 @@ int remove_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
     keys_to_remove_lens[j] = strlen(keys[i]);
 
     j++;
-    { printf(" %s", keys[i]); }
+    { // Debug log message.
+      printf(" %s", keys[i]);
+    }
   }
 
-  { printf(".\n"); }
+  { // Debug log message.
+    printf(".\n");
+  }
 
   // Prepare buffer for gen comparison.
 
@@ -525,7 +553,7 @@ int remove_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
     if (refcount == 0) {
       // This RT holds no references, delete it.
 
-      {
+      { // Debug log message.
         printf("After this operation, this RT would hold no references. "
                "Deleting the whole object instead.\n");
       }
@@ -545,7 +573,7 @@ int remove_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
     rados_release_write_op(write_op);
 
     if (ret < 0) {
-      {
+      { // Debug log message.
         if (gen_cmp_rval != 0) {
           printf("The RT object has changed since it was last read. Please try "
                  "again.\n");
@@ -556,7 +584,9 @@ int remove_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
     }
   }
 
-  { printf("RT object successfully updated.\n"); }
+  { // Debug log message.
+    printf("RT object successfully updated.\n");
+  }
 
 out:
 
@@ -572,7 +602,9 @@ out:
 int read_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
             int keys_count, RT_V1_GEN_T *gen, RT_V1_REFCOUNT_T *refcount,
             int *ref_keys_found) {
-  { printf("read_v1(): Reading RT v1 object.\n"); }
+  { // Debug log message.
+    printf("read_v1(): Reading RT v1 object.\n");
+  }
 
   int ret = 0;
 
@@ -622,7 +654,7 @@ int read_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
     unsigned iter_elems = rados_omap_iter_size(omap_iter);
     fetched_keys = malloc(sizeof(void *) * iter_elems);
 
-    {
+    { // Debug log message.
       printf("Based on requested ref keys, we were able to fetch %d of them "
              "from RT OMap:",
              iter_elems);
@@ -633,15 +665,21 @@ int read_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
       size_t key_len, val_len;
       ret = rados_omap_get_next2(omap_iter, &key, &val, &key_len, &val_len);
       if (ret < 0) {
-        { printf("\nrados_omap_get_next2() failed with error code %d\n", ret); }
+        { // Debug log message.
+          printf("\nrados_omap_get_next2() failed with error code %d\n", ret);
+        }
         goto out;
       }
 
       fetched_keys[i] = key;
-      { printf(" %s", key); }
+      { // Debug log message.
+        printf(" %s", key);
+      }
     }
 
-    { printf(".\n"); }
+    { // Debug log message.
+      printf(".\n");
+    }
 
     for (int i = 0; i < keys_count; i++) {
       int found = 0;
@@ -664,7 +702,7 @@ int read_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
   *gen = ntohl(*gen);
   *refcount = ntohl(*refcount);
 
-  {
+  { // Debug log message.
     printf("The RT object tracks %d references in total. It's been updated %d "
            "times so far.\n",
            *refcount, *gen);
