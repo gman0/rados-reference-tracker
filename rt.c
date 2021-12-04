@@ -8,6 +8,7 @@
 /*
 
 RT object layout
+================
 
 If not specified otherwise, all values are stored in big-endian order.
 
@@ -17,16 +18,10 @@ Version 1:
 
     byte idx      type         name
     --------     ------       ------
-     0 ..  3     uint32_t     gen
-     4 ..  7     uint32_t     refcount
-
-    `gen`: Generation number. Incremented each time the RT object is modified.
-           This is used as a comparison value in test-and-set procedures.
-           The write transaction is aborted if `gen` has changed since the last
-           time the object was read.
+     0 ..  3     uint32_t     refcount
 
     `refcount`: Number of references held by the RT object. The actual
-                reference keys are stored in an Omap along with the RADOS
+                reference keys are stored in an OMap along with the RADOS
                 object.
 
 */
@@ -40,30 +35,26 @@ Version 1:
 // Current RT object version.
 #define RT_CURRENT_VERSION 1
 
-// RT generation number type (Version 1).
-#define RT_V1_GEN_T uint32_t
-// RT generation number size (Version 1).
-#define RT_V1_GEN_SIZE sizeof(RT_V1_GEN_T)
 // RT reference count type (Version 1).
 #define RT_V1_REFCOUNT_T uint32_t
 // RT reference count size (Version 1).
-#define RT_V1_REFCOUNT_SIZE sizeof(RT_V1_GEN_T)
+#define RT_V1_REFCOUNT_SIZE sizeof(RT_V1_REFCOUNT_T)
 
 // Read RT object version from xattrs.
-int read_version(rados_ioctx_t ioctx, const char *oid, uint32_t *version);
+int read_rt_version(rados_ioctx_t ioctx, const char *oid, uint32_t *version);
 
 // Initialize RT object (Version 1).
 int init_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
             int keys_count);
 // Add keys to RT object (Version 1).
-int add_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
-           int keys_count);
+int add_v1(rados_ioctx_t ioctx, const char *oid, uint64_t gen,
+           const char *const *keys, int keys_count);
 // Remove keys from RT object (Version 1).
-int remove_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
-              int keys_count, int *rt_removed);
+int remove_v1(rados_ioctx_t ioctx, const char *oid, uint64_t gen,
+              const char *const *keys, int keys_count, int *rt_removed);
 // Read RT object (Version 1).
-int read_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
-            int keys_count, RT_V1_GEN_T *gen, RT_V1_REFCOUNT_T *refcount,
+int read_v1(rados_ioctx_t ioctx, const char *oid, uint64_t gen,
+            const char *const *keys, int keys_count, RT_V1_REFCOUNT_T *refcount,
             int *ref_keys_found);
 
 /**
@@ -90,7 +81,7 @@ int rt_add(rados_t rados, const char *pool_name, const char *rt_name,
 
   RT_VERSION_T version;
 
-  if ((ret = read_version(ioctx, rt_name, &version)) < 0) {
+  if ((ret = read_rt_version(ioctx, rt_name, &version)) < 0) {
     if (ret == -ENOENT) {
       // This is new RT. Initialize it with `keys`.
 
@@ -112,9 +103,15 @@ int rt_add(rados_t rados, const char *pool_name, const char *rt_name,
     printf("Got RT object version %d.\n", version);
   }
 
+  uint64_t gen = rados_get_last_version(ioctx);
+
+  { // Debug log message.
+    printf("RADOS object generation %lu.\n", gen);
+  }
+
   switch (version) {
   case 1:
-    ret = add_v1(ioctx, rt_name, keys, keys_count);
+    ret = add_v1(ioctx, rt_name, gen, keys, keys_count);
     break;
   default:
     // Unknown version.
@@ -160,7 +157,7 @@ int rt_remove(rados_t rados, const char *pool_name, const char *rt_name,
 
   RT_VERSION_T version;
 
-  if ((ret = read_version(ioctx, rt_name, &version)) < 0) {
+  if ((ret = read_rt_version(ioctx, rt_name, &version)) < 0) {
     if (ret == -ENOENT) {
       // This RT doesn't exist. Assume it was already deleted.
 
@@ -182,9 +179,15 @@ int rt_remove(rados_t rados, const char *pool_name, const char *rt_name,
     printf("Got RT object version %d.\n", version);
   }
 
+  uint64_t gen = rados_get_last_version(ioctx);
+
+  { // Debug log message.
+    printf("RADOS object version %lu.\n", gen);
+  }
+
   switch (version) {
   case 1:
-    ret = remove_v1(ioctx, rt_name, keys, keys_count, &deleted);
+    ret = remove_v1(ioctx, rt_name, gen, keys, keys_count, &deleted);
     break;
   default:
     // Unknown version.
@@ -206,7 +209,8 @@ out:
   return ret;
 }
 
-int read_version(rados_ioctx_t ioctx, const char *oid, RT_VERSION_T *version) {
+int read_rt_version(rados_ioctx_t ioctx, const char *oid,
+                    RT_VERSION_T *version) {
   { // Debug log message.
     printf("Reading RT version...\n");
   }
@@ -231,6 +235,9 @@ int init_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
     printf("init_v1(): Initializing new RT v1 object.\n");
   }
 
+  const int write_buf_size = RT_V1_REFCOUNT_SIZE;
+  char write_buf[write_buf_size];
+
   // Prepare version.
 
   char version_bytes[RT_VERSION_SIZE];
@@ -240,23 +247,11 @@ int init_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
     memcpy(version_bytes, &version, RT_VERSION_SIZE);
   }
 
-  // Common buffer for gen and refcount so that it fits
-  // in a single write_full step.
-  const int write_buf_size = RT_V1_GEN_SIZE + RT_V1_REFCOUNT_SIZE;
-  char write_buf[write_buf_size];
-
-  // Prepare generation number.
-
-  {
-    RT_V1_GEN_T gen = htonl(1);
-    memcpy(write_buf, &gen, RT_V1_GEN_SIZE);
-  }
-
   // Prepare reference count.
 
   {
     RT_V1_REFCOUNT_T refcount = htonl(keys_count);
-    memcpy(write_buf + RT_V1_GEN_SIZE, &refcount, RT_V1_REFCOUNT_SIZE);
+    memcpy(write_buf, &refcount, RT_V1_REFCOUNT_SIZE);
   }
 
   // Prepare OMap entries.
@@ -301,29 +296,23 @@ int init_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
   return ret;
 }
 
-int add_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
-           int keys_count) {
+int add_v1(rados_ioctx_t ioctx, const char *oid, uint64_t gen,
+           const char *const *keys, int keys_count) {
   { // Debug log message.
     printf("add_v1(): Adding keys to an existing RT v1 object.\n");
   }
 
   int ret = 0;
-  RT_V1_GEN_T gen;
   RT_V1_REFCOUNT_T refcount;
 
-  // Common buffer for gen and refcount so that it fits
-  // in a single write_full step.
-  const int write_buf_size = RT_V1_GEN_SIZE + RT_V1_REFCOUNT_SIZE;
+  const int write_buf_size = RT_V1_REFCOUNT_SIZE;
   char write_buf[write_buf_size];
-
-  // Buffer for gen comparison.
-  char gen_cmp_buf[RT_V1_GEN_SIZE];
 
   // Return values from OMap comparisons.
   int *ref_keys_found = malloc(sizeof(int) * keys_count);
 
   // Read the RT object.
-  if ((ret = read_v1(ioctx, oid, keys, keys_count, &gen, &refcount,
+  if ((ret = read_v1(ioctx, oid, gen, keys, keys_count, &refcount,
                      ref_keys_found)) < 0) {
     goto out;
   }
@@ -381,24 +370,13 @@ int add_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
     printf(".\n");
   }
 
-  // Prepare buffer for gen comparison.
+  // Prepare new value refcount.
 
-  {
-    RT_V1_GEN_T gen_n = htonl(gen);
-    memcpy(gen_cmp_buf, &gen_n, RT_V1_GEN_SIZE);
-  }
-
-  // Prepare new values for gen and refcount.
-
-  gen++;
   refcount += (RT_V1_REFCOUNT_T)keys_to_add_count;
 
   {
-    RT_V1_GEN_T gen_n = htonl(gen);
     RT_V1_REFCOUNT_T refcount_n = htonl(refcount);
-
-    memcpy(write_buf, &gen_n, RT_V1_GEN_SIZE);
-    memcpy(write_buf + RT_V1_GEN_SIZE, &refcount_n, RT_V1_REFCOUNT_SIZE);
+    memcpy(write_buf, &refcount_n, RT_V1_REFCOUNT_SIZE);
   }
 
   // Perform write.
@@ -406,9 +384,7 @@ int add_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
   {
     rados_write_op_t write_op = rados_create_write_op();
 
-    int gen_cmp_rval;
-    rados_write_op_cmpext(write_op, gen_cmp_buf, RT_V1_GEN_SIZE, 0,
-                          &gen_cmp_rval);
+    rados_write_op_assert_version(write_op, gen);
     rados_write_op_write_full(write_op, write_buf, write_buf_size);
     rados_write_op_omap_set2(write_op, (const char *const *)keys_to_add,
                              (const char *const *)vals_to_add, keys_to_add_lens,
@@ -419,7 +395,7 @@ int add_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
 
     if (ret < 0) {
       { // Debug log message.
-        if (gen_cmp_rval != 0) {
+        if (ret == -ERANGE) {
           printf("The RT object has changed since it was last read. Please try "
                  "again.\n");
         } else {
@@ -445,30 +421,24 @@ out:
   return ret;
 }
 
-int remove_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
-              int keys_count, int *rt_removed) {
+int remove_v1(rados_ioctx_t ioctx, const char *oid, uint64_t gen,
+              const char *const *keys, int keys_count, int *rt_removed) {
   { // Debug log message.
     printf("remove_v1(): Removing keys from an existing RT v1 object.\n");
   }
 
   int removed = 0;
   int ret = 0;
-  RT_V1_GEN_T gen;
   RT_V1_REFCOUNT_T refcount;
 
-  // Common buffer for gen and refcount so that it fits
-  // in a single write_full step.
-  const int write_buf_size = RT_V1_GEN_SIZE + RT_V1_REFCOUNT_SIZE;
+  const int write_buf_size = RT_V1_REFCOUNT_SIZE;
   char write_buf[write_buf_size];
-
-  // Buffer for gen comparison.
-  char gen_cmp_buf[RT_V1_GEN_SIZE];
 
   // Return values from OMap comparisons.
   int *ref_keys_found = malloc(sizeof(int) * keys_count);
 
   // Read the RT object.
-  if ((ret = read_v1(ioctx, oid, keys, keys_count, &gen, &refcount,
+  if ((ret = read_v1(ioctx, oid, gen, keys, keys_count, &refcount,
                      ref_keys_found)) < 0) {
     goto out;
   }
@@ -521,34 +491,20 @@ int remove_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
     printf(".\n");
   }
 
-  // Prepare buffer for gen comparison.
+  // Prepare new value for refcount.
 
-  {
-    RT_V1_GEN_T gen_n = htonl(gen);
-    memcpy(gen_cmp_buf, &gen_n, RT_V1_GEN_SIZE);
-  }
-
-  // Prepare new values for gen and refcount.
-
-  gen++;
   refcount -= (RT_V1_REFCOUNT_T)keys_to_remove_count;
 
   {
-    RT_V1_GEN_T gen_n = htonl(gen);
     RT_V1_REFCOUNT_T refcount_n = htonl(refcount);
-
-    memcpy(write_buf, &gen_n, RT_V1_GEN_SIZE);
-    memcpy(write_buf + RT_V1_GEN_SIZE, &refcount_n, RT_V1_REFCOUNT_SIZE);
+    memcpy(write_buf, &refcount_n, RT_V1_REFCOUNT_SIZE);
   }
 
   // Perform write operation.
 
   {
     rados_write_op_t write_op = rados_create_write_op();
-
-    int gen_cmp_rval;
-    rados_write_op_cmpext(write_op, gen_cmp_buf, RT_V1_GEN_SIZE, 0,
-                          &gen_cmp_rval);
+    rados_write_op_assert_version(write_op, gen);
 
     if (refcount == 0) {
       // This RT holds no references, delete it.
@@ -574,7 +530,7 @@ int remove_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
 
     if (ret < 0) {
       { // Debug log message.
-        if (gen_cmp_rval != 0) {
+        if (ret == -ERANGE) {
           printf("The RT object has changed since it was last read. Please try "
                  "again.\n");
         } else {
@@ -599,8 +555,8 @@ out:
   return ret;
 }
 
-int read_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
-            int keys_count, RT_V1_GEN_T *gen, RT_V1_REFCOUNT_T *refcount,
+int read_v1(rados_ioctx_t ioctx, const char *oid, uint64_t gen,
+            const char *const *keys, int keys_count, RT_V1_REFCOUNT_T *refcount,
             int *ref_keys_found) {
   { // Debug log message.
     printf("read_v1(): Reading RT v1 object.\n");
@@ -608,9 +564,7 @@ int read_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
 
   int ret = 0;
 
-  // Common buffer for gen and refcount so that both of these values can be
-  // fetched by a single read step.
-  const int buf_size = RT_V1_GEN_SIZE + RT_V1_REFCOUNT_SIZE;
+  const int buf_size = RT_V1_REFCOUNT_SIZE;
   char read_buf[buf_size];
 
   // Here will be stored results of op_read.
@@ -634,6 +588,7 @@ int read_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
   {
     rados_read_op_t read_op = rados_create_read_op();
 
+    rados_read_op_assert_version(read_op, gen);
     rados_read_op_read(read_op, 0, buf_size, read_buf, &read_bytes, &read_rval);
     rados_read_op_omap_get_vals_by_keys2(read_op, keys, keys_count, key_lens,
                                          &omap_iter, &omap_get_vals_ret);
@@ -695,18 +650,10 @@ int read_v1(rados_ioctx_t ioctx, const char *oid, const char *const *keys,
     }
   }
 
-  // Output gen and refcount values.
+  // Output refcount value.
 
-  memcpy(gen, read_buf, RT_V1_GEN_SIZE);
-  memcpy(refcount, read_buf + RT_V1_GEN_SIZE, RT_V1_REFCOUNT_SIZE);
-  *gen = ntohl(*gen);
+  memcpy(refcount, read_buf, RT_V1_REFCOUNT_SIZE);
   *refcount = ntohl(*refcount);
-
-  { // Debug log message.
-    printf("The RT object tracks %d references in total. It's been updated %d "
-           "times so far.\n",
-           *refcount, *gen);
-  }
 
 out:
 
